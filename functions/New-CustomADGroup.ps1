@@ -1,4 +1,4 @@
-Function CreateGroup {
+Function New-CustomADGroup {
     <#
         .SYNOPSIS
             Creates a Group in an active directory environment based on random data

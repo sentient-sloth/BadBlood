@@ -1,5 +1,4 @@
-﻿Function CreateRandomSPNs{
-
+﻿function New-CustomSPNs {
     <#
         .SYNOPSIS
             Creates random SPNs based on combinations of users and computers
@@ -12,11 +11,7 @@
         
         .EXAMPLE
             
-     
-        
         .NOTES
-            
-            
             Unless required by applicable law or agreed to in writing, software
             distributed under the License is distributed on an "AS IS" BASIS,
             WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,8 +19,6 @@
             limitations under the License.
             
             Created by www.github.com/sussurro
-    
-        
     #>
     [CmdletBinding()]
     

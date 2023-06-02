@@ -1,4 +1,4 @@
-function ADREP_NotReqPreAuth {
+function Set-PreAuthNotRqd {
     <#
         .SYNOPSIS
             Creates a Group in an active directory environment based on random data
@@ -12,8 +12,7 @@ function ADREP_NotReqPreAuth {
         
         .EXAMPLE
             
-     
-        
+
         .NOTES
             
             #==============================
@@ -26,8 +25,6 @@ function ADREP_NotReqPreAuth {
             limitations under the License.
             
             Author's blog: https://www.secframe.com
-    
-        
     #>
 
     [CmdletBinding()]
@@ -42,6 +39,4 @@ function ADREP_NotReqPreAuth {
     foreach($user in $UserList){
         $User | Set-ADAccountControl -DoesNotRequirePreAuth:$true
     }
-	
-    
 }

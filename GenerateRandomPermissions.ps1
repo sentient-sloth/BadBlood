@@ -3,30 +3,27 @@ function Get-ScriptDirectory {
     Split-Path -Parent $PSCommandPath
 }
 $scriptPath = Get-ScriptDirectory
-$adplatformsourcedir = split-path -Path $scriptPath -Parent
+$basescriptPath = split-path -Path $scriptPath -Parent
 
-
-#=============================================
 #import ACL function files
-$ACLScriptspath = $adplatformsourcedir + "\AD_OU_SetACL"
+$ACLScriptspath = (Join-Path $basescriptPath 'functions\ACLs')
 
-
-$files = Get-ChildItem $ACLScriptspath -Name "*permissions.ps1"
-    foreach ($file in $files){
-    .($aclscriptspath + "\"+$file)
+$Files = Get-ChildItem $ACLScriptspath -Name "*permissions.ps1"
+    foreach ($File in $Files){
+    . $File.FullName
     }
 
-Function Create-PermissionSet{
+Function New-PermissionSet {
     $Permissions = @()
     $row = @()
     
     #===================================================================
     #Full Control PERMISSIONS
     $FunctionSet = "Full Control Permissions"
-    $row += new-object PSObject -Property @{FunctionSet = $FunctionSet;FunctionName = 'FullControl';APPLY = 'FALSE'}
-    $row += new-object PSObject -Property @{FunctionSet = $FunctionSet;FunctionName = 'FullControlUsers';APPLY = 'FALSE'}
-    $row += new-object PSObject -Property @{FunctionSet = $FunctionSet;FunctionName = 'FullControlGroups';APPLY = 'FALSE'}
-    $row += new-object PSObject -Property @{FunctionSet = $FunctionSet;FunctionName = 'FullControlComputers';APPLY = 'FALSE'}
+    $row += new-object PSObject -Property @{FunctionSet = $FunctionSet; ObjectType = 'all'; Apply = 'FALSE'}
+    $row += new-object PSObject -Property @{FunctionSet = $FunctionSet; ObjectType = 'user'; Apply = 'FALSE'}
+    $row += new-object PSObject -Property @{FunctionSet = $FunctionSet; ObjectType = 'group'; Apply = 'FALSE'}
+    $row += new-object PSObject -Property @{FunctionSet = $FunctionSet; ObjectType = 'computer'; Apply = 'FALSE'}
     
     #===================================================================
     #USER PERMISSIONS
@@ -132,13 +129,7 @@ Function Create-PermissionSet{
     }while($P -le $howmanypermissions)
     }
     $permissions
-
 }
-
-
-#=================
-#Rando permissions now set to the $permissions variable. Time to do some random admin damage
-#=================
 
 $PermissionsToOUMapping = @{}
 $PermissionsToOUMapping.Add('User','ServiceAccounts')
@@ -148,68 +139,64 @@ $PermissionsToOUMapping.Add('OU','OU') #this mapping doesnt entirely matter sinc
 $PermissionsToOUMapping.Add('Printer', 'Devices')
 #=============================================
 #BEGIN MAKING GROUPS AND SETTING ACLS
-$dom = get-addomain
-$setdc = $dom.pdcemulator
-cd ad:
-$dn = $dom.distinguishedname
+$Domain = Get-ADDomain
+$setdc = $Domain.pdcemulator
+$dn = $Domain.distinguishedname
 $AllOUs = Get-ADOrganizationalUnit -Filter *
-$allUsers = get-adobject -Filter {objectclass -eq 'user'} -ResultSetSize 2500 -Server $setdc|Where-object -Property objectclass -eq user
+$allUsers = Get-ADObject -LDAPFilter '(&(objectClass=user)(objectCategory=person))' -ResultSetSize 2500 -Server $setdc
 
-## Create guidmap for acl functions
-cd ad:
-#=============================================
-       
-        #Get a reference to the RootDSE of the current domain
-        $schemaPath = (Get-ADRootDSE)
-        #$schemaobjects = Get-ADObject -filter * -SearchBase $schemaPath.defaultNamingContext -Properties * 
-        #Get a reference to the current domain
-        $domain = Get-ADDomain
-        #============================
-        #Create a hashtable to store the GUID value of each schema class and attribute
-        $guidmap = @{}
-        Get-ADObject -SearchBase ($schemaPath.SchemaNamingContext) -LDAPFilter  `
-        "(schemaidguid=*)" -Properties lDAPDisplayName,schemaIDGUID | 
-        % {$guidmap[$_.lDAPDisplayName]=[System.GUID]$_.schemaIDGUID}
+Set-Location 'AD:\'
 
-        #Create a hashtable to store the GUID value of each extended right in the forest
-        $extendedrightsmap = @{}
-        Get-ADObject -SearchBase ($schemaPath.ConfigurationNamingContext) -LDAPFilter `
-        "(&(objectclass=controlAccessRight)(rightsguid=*))" -Properties displayName,rightsGuid | 
-        % {$extendedrightsmap[$_.displayName]=[System.GUID]$_.rightsGuid}
+#region: Create a hashtable to store the GUID value of each schema class and attribute
+# NOTE: These are used within the permissions functions and should probably be passed in for clarity
+$schemaPath = (Get-ADRootDSE)
+$guidmap = @{}
+$guidParams = @{
+    SearchBase = $schemaPath.SchemaNamingContext
+    LDAPFilter = "(schemaidguid=*)"
+    Properties = 'lDAPDisplayName','schemaIDGUID'
+}
+Get-ADObject @guidParams | ForEach-Object {$guidmap[$_.lDAPDisplayName]=[System.GUID]$_.schemaIDGUID}
 
-<#Pick X number of random users#>
-$permint = 5..100|get-random
+#Create a hashtable to store the GUID value of each extended right in the forest
+$extendedrightsmap = @{}
+$extRightsParams = @{
+    SearchBase = $schemaPath.ConfigurationNamingContext
+    LDAPFilter = "(&(objectclass=controlAccessRight)(rightsguid=*))"
+    Properties = 'displayName','rightsGuid'
+}
+Get-ADObject @extRightsParams | ForEach-Object {$extendedrightsmap[$_.displayName]=[System.GUID]$_.rightsGuid}
+#endregion
+
+#region: Apply random permisions to USERS
+$permint = 5..100 | get-random
 $objwithPerms = @()
 $z = 1
-do{$objwithPerms += $allUsers|Get-Random
-$z++}while($z -le $permint)
+do {
+    $objwithPerms += $allUsers | Get-Random
+    $z++
+} while ($z -le $permint)
 
-    foreach($obj in $objwithPerms){
-        $permissions = Create-PermissionSet
-        $adgroup = get-aduser $obj
-        foreach ($permission in $permissions){
-            if($permissions.count -gt 0){ #Do this permissions thing on the other spots too.
-                if($permission.APPLY -eq 'TRUE'){
-                #apply directly to OU first choice, apply to computer,group,user second choice
-                            if($permission.functionset -eq 'Full Control Permissions'){
-                              
-                                #FullControl 
-                                $OUorRootRando = 1..100|get-random
-                                if ($OUorRootRando -le 3){#lets do root here
-                                    iex ($permission.FunctionName + " -objgroup " + '$adgroup' + " -objou " + '$dn' + " -inheritanceType `'Descendents`'")
-                
-                                }else{
-                                    $OUPicked = $allOUs|Get-random
-                                    iex ($permission.FunctionName + " -objgroup " + '$adgroup' + " -objou " + '$OUPicked' + " -inheritanceType `'Descendents`'")
-                                }
-                            }
-                }else{}
+foreach ($obj in $objwithPerms){
+    $Permissions = New-PermissionSet
+    $Object = Get-ADUser $obj
+    foreach ($Permission in $Permissions){
+        if($Permission.Apply -eq 'TRUE'){
+            if ($permission.functionset -eq 'Full Control Permissions'){
+                $OUorRoot = 1..100 | Get-Random
+                if ($OUorRoot -le 3){
+                    Set-ACLFullControl -Object $Object -Path $dn -Type $Permission.ObjectType -InheritanceType 'Descendents'
+                } else {
+                    $OUPicked = $allOUs | Get-Random
+                    Set-ACLFullControl -Object $Object -Path $OUPicked -Type $Permission.ObjectType -InheritanceType 'Descendents'
+                } # Should add direct object ACL's here too
             }
+        }
+    }
 }
-}
-    #===========================
-    #End user piece here
-    #===========================
+#endregion
+
+#region: Apply random permissions to GROUPS
 $AllGroups = get-adgroup -f * -ResultSetSize 2500
 <#Pick X number of random groups#>
 $permint = 5..100|get-random
@@ -219,7 +206,7 @@ do{$objwithPerms += $AllGroups|Get-Random
 $z++}while($z -le $permint)
 
     foreach($obj in $objwithPerms){
-        $permissions = Create-PermissionSet
+        $permissions = New-PermissionSet
         $adgroup = get-adgroup $obj
         foreach ($permission in $permissions){
             if($permissions.count -gt 0){ 
@@ -241,9 +228,9 @@ $z++}while($z -le $permint)
 }
 }
 }
-#===========================
-#End group piece here
-#===========================
+#endregion
+
+#region: Apply random permissions to COMPUTERS
 $AllComputers = get-adcomputer -f * -ResultSetSize 2500
 <#Pick X number of random groups#>
 $permint = 5..100|get-random
@@ -253,7 +240,7 @@ do{$objwithPerms += $AllComputers|Get-Random
 $z++}while($z -le $permint)
 
     foreach($obj in $objwithPerms){
-        $permissions = Create-PermissionSet
+        $permissions = New-PermissionSet
         $adgroup = get-adcomputer $obj
         foreach ($permission in $permissions){
             if($permissions.count -gt 0){ 
@@ -275,6 +262,4 @@ $z++}while($z -le $permint)
 }
 }
 }
-#===========================
-#End group piece here
-#===========================
+#endregion
