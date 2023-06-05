@@ -27,13 +27,13 @@ param
       HelpMessage = 'Number of User accounts to create')]
    [Int32]$UserCount = 2500,
    [Parameter(Mandatory = $false,
-      Position = 2,
-      HelpMessage = 'Number of Groups to create')]
-   [int32]$GroupCount = 500,
-   [Parameter(Mandatory = $false,
       Position = 3,
       HelpMessage = 'Number of Computer accounts to create')]
    [int32]$ComputerCount = 500,
+   [Parameter(Mandatory = $false,
+      Position = 2,
+      HelpMessage = 'Number of Groups to create')]
+   [int32]$GroupCount = 500,
    [Parameter(Mandatory = $false,
       Position = 4,
       HelpMessage = 'Skip OU creation if you already complete')]
@@ -47,77 +47,93 @@ function Get-ScriptDirectory {
     Split-Path -Parent $PSCommandPath
 }
 
-$basescriptPath = Get-ScriptDirectory
-$ReferenceFiles = Join-Path $basescriptPath 'reference-files'
+$BaseScriptPath = Get-ScriptDirectory
+$ReferenceFiles = Join-Path $BaseScriptPath 'reference-files'
 $Domain = Get-ADDomain
 
 # Import functions
-foreach ($function in (Get-ChildItem -File -Recurse (Join-Path $basescriptPath 'functions'))){
+foreach ($function in (Get-ChildItem -File -Recurse (Join-Path $BaseScriptPath 'functions'))){
     . $function.FullName
-}
-
-# LAPS STUFF
-if ($PSBoundParameters.ContainsKey('InstallLAPS')){
-    .($basescriptPath + '\AD_LAPS_Install\InstallLAPSSchema.ps1')
 }
 
 #region: OU Structure Creation
 if ($PSBoundParameters.ContainsKey('SkipOuCreation') -eq $false){
   Write-Host "[>] Creating OU Structure" -ForegroundColor Cyan
   New-OUStructure -CSVPrefixes (Join-Path $ReferenceFiles '3lettercodes.csv')
+} else {
+    Write-Host "[>] Skipping OU Structure Creation" -ForegroundColor DarkGray
 }
 #endregion
 
 #region: User Creation
 $OUsAll = Get-ADOrganizationalUnit -filter *
-Write-Host "[>] Creating AD User Accounts" -ForegroundColor Cyan
-do {
-  $x++
-  New-CustomADUser -Domain $Domain -OUList $OUsAll -ScriptDir $ReferenceFiles
-  if (($UserCount -gt 20) -and (-Not ($x % [math]::Floor(($UserCount / 10))))){
-    Write-Host "  [>] Accounts created: $x of $UserCount" -ForegroundColor DarkGray    
-  }
-} while ($x -lt $UserCount)
+if ($UserCount -gt 0){
+    Write-Host "[>] Creating User Accounts" -ForegroundColor Cyan
+    do {
+    $x++
+    New-CustomADUser -Domain $Domain -OUList $OUsAll -ScriptDir $ReferenceFiles
+    if (($UserCount -gt 20) -and (-Not ($x % [math]::Floor(($UserCount / 10))))){
+        Write-Host "  [>] Accounts created: $x of $UserCount" -ForegroundColor DarkGray    
+    }
+    } while ($x -lt $UserCount)
+} else {
+    Write-Host "[>] Skipping User Account Creation" -ForegroundColor DarkGray
+}
+#endregion
+
+#region: Computer Creation
+if ($ComputerCount -gt 0){
+    Write-Host "[>] Creating Computer Accounts" -ForegroundColor Cyan
+    $x = 0
+    do {
+        $x++
+        New-CustomADComputer -Domain $Domain -OUList $OUsAll -UserList $AllUsers -ScriptDir $ReferenceFiles
+        if (($ComputerCount -gt 20) -and (-Not ($x % [math]::Floor(($ComputerCount / 10))))){
+            Write-Host "  [>] Accounts created: $x of $ComputerCount" -ForegroundColor DarkGray    
+        }
+    } while ($x -lt $ComputerCount)
+} else {
+    Write-Host "[>] Skipping Computer Account Creation" -ForegroundColor DarkGray
+}
 #endregion
 
 #region: Group Creation
 $AllUsers = Get-ADUser -Filter *
-Write-Host "[>] Creating AD Groups" -ForegroundColor Cyan
-$x = 0
-do {
-    $x++
-    New-CustomADGroup -Domain $Domain -OUList $ousAll -UserList $AllUsers -ScriptDir $ReferenceFiles
-    if (($GroupCount -gt 20) -and (-Not ($x % [math]::Floor(($GroupCount / 10))))){
-        Write-Host "  [>] Accounts created: $x of $GroupCount" -ForegroundColor DarkGray    
-    }
-} while ($x -lt $GroupCount)
-
-$Grouplist = Get-ADGroup -Filter { GroupCategory -eq "Security" -and GroupScope -eq "Global" } -Properties isCriticalSystemObject
-$LocalGroupList = Get-ADGroup -Filter { GroupScope -eq "domainlocal" } -Properties isCriticalSystemObject
-#endregion
-
-#region: Computer Creation
-Write-Host "[>] Creating Computer Accounts" -ForegroundColor Cyan
-$x = 0
-do {
-    $x++
-    New-CustomADComputer -Domain $Domain -OUList $OUsAll -UserList $AllUsers -ScriptDir $ReferenceFiles
-    if (($ComputerCount -gt 20) -and (-Not ($x % [math]::Floor(($ComputerCount / 10))))){
-        Write-Host "  [>] Accounts created: $x of $ComputerCount" -ForegroundColor DarkGray    
-    }
-} while ($x -lt $ComputerCount)
-
-$Complist = Get-ADComputer -filter *
+if ($GroupCount -gt 0){
+    Write-Host "[>] Creating Groups" -ForegroundColor Cyan
+    $x = 0
+    do {
+        $x++
+        New-CustomADGroup -Domain $Domain -OUList $OUsAll -UserList $AllUsers -ScriptDir $ReferenceFiles
+        if (($GroupCount -gt 20) -and (-Not ($x % [math]::Floor(($GroupCount / 10))))){
+            Write-Host "  [>] Accounts created: $x of $GroupCount" -ForegroundColor DarkGray    
+        }
+    } while ($x -lt $GroupCount)
+} else {
+    Write-Host "[>] Skipping Group Creation" -ForegroundColor DarkGray
+}
 #endregion
 
 #region: Additional Chaos
-# Permission Creation of ACLs
-Write-Host "[>] Creating Permissions on Domain" -ForegroundColor Cyan
-.($basescriptPath + '\GenerateRandomPermissions.ps1')
+# Create random selection of ACL assignments
+Write-Host "[>] Setting random permissions" -ForegroundColor Cyan
+$CompList = Get-ADComputer -filter *
+$GroupList = Get-ADGroup -Filter { GroupCategory -eq "Security" -and GroupScope -eq "Global" } -Properties isCriticalSystemObject
+
+$AssigneePools = $AllUsers,$GroupList,$CompList
+$PermissionsConfigured = foreach ($Pool in $AssigneePools){
+    Set-RandomPermissions -AssignmentCount 10 -AssigneePool $Pool -AssignToPool $OUsAll
+}
+
+if ($PermissionsConfigured){
+    $TimeStamp = Get-Date -Format 'yyyyMMddHHmm_'
+    $PermissionsConfigured | Export-Csv (Join-Path $BaseScriptPath "$($TimeStamp)Permissions-Configured.csv")
+}
 
 # Nesting of objects
-Write-Host "Nesting objects into groups on Domain" -ForegroundColor Cyan
-New-RandomGroupAdditions -Domain $Domain -Userlist $AllUsers -GroupList $Grouplist -LocalGroupList $LocalGroupList -complist $Complist
+Write-Host "[>] Nesting Objects into Groups" -ForegroundColor Cyan
+$LocalGroupList = Get-ADGroup -Filter { GroupScope -eq "domainlocal" } -Properties isCriticalSystemObject
+New-RandomGroupAdditions -Userlist $AllUsers -GroupList $GroupList -LocalGroupList $LocalGroupList -CompList $CompList
 
 # SPN Generation
 Write-Host "[>] Adding random SPNs to a few User and Computer Objects" -ForegroundColor Cyan
@@ -137,3 +153,10 @@ do {
 Set-PreAuthNotRqd -UserList $ASREPUsers
 
 #endregion
+
+<# Sections to work on if required
+# LAPS STUFF
+if ($PSBoundParameters.ContainsKey('InstallLAPS')){
+    .($BaseScriptPath + '\AD_LAPS_Install\InstallLAPSSchema.ps1')
+}
+#>

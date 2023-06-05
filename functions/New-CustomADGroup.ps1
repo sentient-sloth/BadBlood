@@ -20,11 +20,8 @@ Function New-CustomADGroup {
         
         .EXAMPLE
             
-     
-        
+
         .NOTES
-            
-            
             Unless required by applicable law or agreed to in writing, software
             distributed under the License is distributed on an "AS IS" BASIS,
             WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,8 +29,6 @@ Function New-CustomADGroup {
             limitations under the License.
             
             Author's blog: https://www.secframe.com
-    
-        
     #>
     [CmdletBinding()]
     
@@ -57,77 +52,87 @@ Function New-CustomADGroup {
             [string]$ScriptDir
     )
     
-        if(!$PSBoundParameters.ContainsKey('Domain')){
-            if($args[0]){$setDC = $args[0].pdcemulator}
-            else{$setDC = (Get-ADDomain).pdcemulator}
-        }else {$setDC = $Domain.pdcemulator}
-        if (!$PSBoundParameters.ContainsKey('OUList')){
-            if($args[1]){
-                $OUsAll = $args[1]
-            }
-            else{
-                $OUsAll = get-adobject -Filter {objectclass -eq 'organizationalunit'} -ResultSetSize 300
-            }
-        }else {
-            $OUsAll = $OUList
+    #region: Pamameter checks
+    if (!$PSBoundParameters.ContainsKey('Domain')){
+        if($args[0]){
+            $setDC = $args[0].pdcemulator
+        } else {
+            $setDC = (Get-ADDomain).pdcemulator
         }
-        if (!$PSBoundParameters.ContainsKey('UserList')){
-            if($args[1]){
-                $UserList = $args[2]
-            }
-            else{
-                $UserList = get-aduser -ResultSetSize 2500 -Server $setDC -Filter * 
-            }
-        }else {
-            $UserList = $UserList
+    } else {
+        $setDC = $Domain.pdcemulator
+    }
+    if (!$PSBoundParameters.ContainsKey('OUList')){
+        if($args[1]){
+            $OUsAll = $args[1]
         }
-        if (!$PSBoundParameters.ContainsKey('ScriptDir')){
-            
-            if($args[2]){
-
-                $groupscriptPath = $args[2]}
-            else{
-                    $groupscriptPath = "$((Get-Location).path)\AD_Groups_Create\"
-            }
-            
-        }else{
-            $groupscriptPath = $ScriptDir
+        else{
+            $OUsAll = get-adobject -Filter {objectclass -eq 'organizationalunit'} -ResultSetSize 300
         }
-        
-        $ownerinfo = get-random $userlist
-        $Description = "User Group Created by Badblood github.com/davidprowe/badblood"
-        
-        <#
-        ================================
-        OU LOCATION
-        ================================
-        $OUsAll = get-adobject -Filter {objectclass -eq 'organizationalunit'} -ResultSetSize 300
-        will work on adding objects to containers later $ousall += get-adobject -Filter {objectclass -eq 'container'} -ResultSetSize 300|where-object -Property objectclass -eq 'container'|where-object -Property distinguishedname -notlike "*}*"|where-object -Property distinguishedname -notlike  "*DomainUpdates*"
+    } else {
+        $OUsAll = $OUList
+    }
+    
+    if (!$PSBoundParameters.ContainsKey('UserList')){
+        if($args[1]){
+            $UserList = $args[2]
+        } else {
+            $UserList = get-aduser -ResultSetSize 2500 -Server $setDC -Filter * 
+        }
+    } else {
+        $UserList = $UserList
+    }
+    
+    if (!$PSBoundParameters.ContainsKey('ScriptDir')){
+        if ($args[2]){
+            $groupscriptPath = $args[2]
+        } else {
+            $groupscriptPath = "$((Get-Location).path)\AD_Groups_Create\"
+        }
+    } else {
+        $groupscriptPath = $ScriptDir
+    }
+    #endregion
+    
+    $ownerinfo = Get-Random $userlist
+    
+    $ouLocation = (Get-Random $OUsAll).distinguishedname
 
-        #>
-        $ouLocation = (get-random $OUsAll).distinguishedname
+    $Groupnameprefix = ($ownerinfo.samaccountname).substring(0,2) 
+    try {
+        $Application = (Get-Content ($groupscriptPath + '\hotmail.txt') | Get-Random).substring(0,9)
+    } catch {
+        $Application = (Get-Content ($groupscriptPath + '\hotmail.txt') | Get-Random).substring(0,3)
+    }
+    $functionint = 1..100 | Get-Random  
+    if ($functionint -le 25){
+        $function = 'admingroup'
+    } else {
+        $function = 'distlist'
+    }
+    $GroupNameFull = $Groupnameprefix + '-'+$Application+ '-'+$Function
+    
+    $i = 1
+    $checkAcct = $null
+    while ($null -ne $checkAcct) {
+        try {
+            $checkAcct = Get-ADGroup $GroupNameFull
+        } catch {
+            $GroupNameFull = $GroupNameFull + $i 
+        }
+        $i++
+    }
 
-        $Groupnameprefix = ''
-        $Groupnameprefix = ($ownerinfo.samaccountname).substring(0,2) 
-        $application = try{(get-content($groupscriptPath + '\hotmail.txt')|get-random).substring(0,9)} catch{(get-content($groupscriptPath + '\hotmail.txt')|get-random).substring(0,3) }
-        $functionint = 1..100|Get-random  
-        if($functionint -le 25){$function = 'admingroup'}else{$function = 'distlist'}              
-        $GroupNameFull = $Groupnameprefix + '-'+$Application+ '-'+$Function
-        <#
-         Append name if dupe /
-        #>
-        $i = 1
-        $checkAcct = $null
-        do {
-            try{$checkAcct = get-adgroup $GroupNameFull}
-            catch{
-                $GroupNameFull = $GroupNameFull + $i
-                
-            }
-            $i++
-        }while($null -ne $checkAcct)   
-
-        try{New-ADGroup -Server $setdc -Description $Description -Name $GroupNameFull -Path $ouLocation -GroupCategory Security -GroupScope Global -ManagedBy $ownerinfo.distinguishedname}
-        catch{}
-        
+    try {
+        $GroupParams = @{
+            Server        = $SetDC
+            Description   = $Description
+            Name          = $GroupNameFull
+            Path          = $ouLocation
+            GroupCategory = 'Security'
+            GroupScope    = 'Global'
+            ManagedBy     = $ownerinfo.distinguishedname
+        }
+        New-ADGroup @GroupParams
+    } catch {}
 }

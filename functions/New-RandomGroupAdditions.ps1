@@ -20,118 +20,107 @@ Function New-RandomGroupAdditions {
             [Object[]]$CompList
     )
 
-    ##BEGIN STUFF
+    #region: Parameter processing
     if (!$PSBoundParameters.ContainsKey('UserList')){
-        $allUsers = Get-ADUser -Filter *
+        $AllUsers = Get-ADUser -Filter *
     } else {
-        $allUsers = $UserList
+        $AllUsers = $UserList
     }
     if (!$PSBoundParameters.ContainsKey('GroupList')){
-        $allGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" -and GroupScope -eq "Global"  } -Properties isCriticalSystemObject
+        $AllGroups = Get-ADGroup -Filter { GroupCategory -eq "Security" -and GroupScope -eq "Global"  } -Properties isCriticalSystemObject
     } else {
-        $allGroups = $GroupList
+        $AllGroups = $GroupList
     }
     if (!$PSBoundParameters.ContainsKey('LocalGroupList')){
-        $allGroupsLocal = Get-ADGroup -Filter { GroupScope -eq "domainlocal"  } -Properties isCriticalSystemObject
+        $AllGroupsLocal = Get-ADGroup -Filter { GroupScope -eq "domainlocal"  } -Properties isCriticalSystemObject
     } else {
-        $allGroupsLocal = $LocalGroupList
+        $AllGroupsLocal = $LocalGroupList
     }
     if (!$PSBoundParameters.ContainsKey('CompList')){
-        $allcomps = Get-ADComputer -Filter *
+        $AllComps = Get-ADComputer -Filter *
     } else {
-        $allcomps = $CompList
+        $AllComps = $CompList
     }
+    #endregion
     
-    Set-Location 'AD:'
-
     #Pick X number of random users
-    $UsersInGroupCount = [math]::Round($allusers.count * .8) #need to round to int. need to check this works
-    $GroupsInGroupCount = [math]::Round($allGroups.count * .2)
-    $CompsInGroupCount = [math]::Round($allcomps.count * .1)
+    $UsersInGroupCount = [math]::Round($AllUsers.count * .8) #need to round to int. need to check this works
+    $GroupsInGroupCount = [math]::Round($AllGroups.count * .2)
+    $CompsInGroupCount = [math]::Round($AllComps.count * .1)
 
-    $AddUserstoGroups = Get-Random -Count $UsersInGroupCount -InputObject $allUsers
-    $allGroupsFiltered = $allGroups | Where-Object -Property iscriticalsystemobject -ne $true
+    $AddUsersToGroups = Get-Random -Count $UsersInGroupCount -InputObject $AllUsers
+    $AllGroupsFiltered = $AllGroups | Where-Object -Property iscriticalsystemobject -ne $true
 
     #add a large number of users to a large number of non critical groups
-    foreach ($user in $AddUserstoGroups){
-        #get how many groups
-        $num = 1..10 | Get-Random
+    foreach ($user in $AddUsersToGroups){
         $n = 0
-        do {
-            $randogroup = $allGroupsFiltered | Get-Random
-            #add to group
-            try{Add-ADGroupMember -Identity $randogroup -Members $user}
-            catch{}
+        while ($n -le (1..10 | Get-Random)) {
+            $randogroup = $AllGroupsFiltered | Get-Random
+            try {
+                Add-ADGroupMember -Identity $randogroup -Members $user
+            } catch {}
             $n++
-        } while ($n -le $num)
+        }
     }
 
     #add a few people to a small number of critical groups
-    $allGroupsCrit = $allGroups | Where-Object {
-            $_.iscriticalsystemobject -eq $true -and
-            $_.Name -ne "Domain Users" -and 
-            $_.Name -ne "Domain Guests" -and
-            $_.Name -ne "Domain Computers"
-        }
-    $allGroupsCrit | ForEach-Object {
+    $AllGroupsCrit = $AllGroups | Where-Object {
+        $_.iscriticalsystemobject -eq $true -and
+        $_.Name -ne "Domain Users" -and 
+        $_.Name -ne "Domain Guests" -and
+        $_.Name -ne "Domain Computers"
+    }
+    
+    $AllGroupsCrit | ForEach-Object {
         try {
-            Add-ADGroupMember -Identity $_ -Members (Get-Random -Count (2..5 | Get-Random) -InputObject $allUsers)
+            # Add Critical Group Members
+            Add-ADGroupMember -Identity $_ -Members (Get-Random -Count (2..5 | Get-Random) -InputObject $AllUsers)
+            # Add Critical Group to Groups
+            $n = 0
+            while ($n -le (1..3 | Get-Random)) {
+                $randogroup = $AllGroupsFiltered | Get-Random
+                try {
+                    Add-ADGroupMember -Identity $randogroup -Members $_
+                } catch {}
+                $n++
+            } 
         } catch {}
     }
 
     #add a few people to a small number of critical local groups
-    $allGroupsLocal | ForEach-Object {
-        try{
-            Add-ADGroupMember -Identity $_ -Members (Get-Random -Count (1..3 | Get-Random) -InputObject $allUsers)
-        }
-        catch{}
+    $AllGroupsLocal | ForEach-Object {
+        try {
+            Add-ADGroupMember -Identity $_ -Members (Get-Random -Count (1..3 | Get-Random) -InputObject $AllUsers)
+        } catch {}
     }
 
     #Nest some groups in groups
-    $AddGroupstoGroups = Get-Random -Count $GroupsInGroupCount -InputObject $allGroupsFiltered
+    $AddGroupstoGroups = Get-Random -Count $GroupsInGroupCount -InputObject $AllGroupsFiltered
 
     foreach ($group in $AddGroupstoGroups){
         #get how many groups
-        $num = 1..2 | Get-Random
         $n = 0
-        do {
-            $randogroup = $allGroupsFiltered | Get-Random
+        while ($n -le (1..2 | Get-Random)) {
+            $randogroup = $AllGroupsFiltered | Get-Random
             #add to group
             try {
                 Add-ADGroupMember -Identity $randogroup -Members $group
             } catch {}
             $n++
-        } while ($n -le $num)
-    }
-
-    # add all critical groups to 2-5 other random groups
-    $allGroupsCrit | ForEach-Object {
-        $num = 1..3 | Get-Random
-        $n = 0
-        do {
-            $randogroup = $allGroupsFiltered|Get-Random
-            #add to group
-            try {
-                Add-ADGroupMember -Identity $randogroup -Members $_
-            } catch {}
-            $n++
-        } while ($n -le $num)
+        }
     }
 
     $addcompstoGroups = @()
-    $addcompstogroups = Get-Random -Count $compsInGroupCount -InputObject $allcomps
+    $addcompstogroups = Get-Random -Count $compsInGroupCount -InputObject $AllComps
 
     foreach ($comp in $addcompstogroups){
-        $num = 1..5 | Get-Random
         $n = 0
-        do{
-            $randomgroup = $allGroupsFiltered | Get-Random
-            #add to group
+        while ($n -le (1..5 | Get-Random)){
+            $randomgroup = $AllGroupsFiltered | Get-Random
             try {
                 Add-ADGroupMember -Identity $randomgroup -Members $comp
-            }
-            catch {}
+            } catch {}
             $n++
-        } while ($n -le $num)
+        }
     }
 }

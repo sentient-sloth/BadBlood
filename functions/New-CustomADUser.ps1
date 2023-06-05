@@ -212,7 +212,18 @@
         }
     }
 
-    $ouLocation = (Get-Random $OUsAll).distinguishedname
+    $OULocation = (Get-Random $OUsAll).distinguishedname
+    
+    #Ensure OU's are accessible post creation (replication can cause issues if too fast)
+    $Counter = 0
+    while (-Not (Test-Path "AD:/$OULocation")){
+        Start-Sleep 10
+        $Counter++
+        if ($Counter -ge 10){
+            Write-Host "Failed to find OU's after $($Counter * 12) seconds!"
+            return $false
+        }
+    }
     
     $accountType = 1..100 | Get-Random
     if ($accountType -le 3){
