@@ -154,6 +154,15 @@ Set-PreAuthNotRqd -UserList $ASREPUsers
 
 #endregion
 
+#region: Final flags if run successfully, needs improvement
+if (
+    ((Get-ADUser -Filter *).Count -gt 10) -and
+    ((Get-ADComputer -Filter *).Count -gt 5) -and
+    ((Get-ADGroup -Filter *).Count -gt 50)
+){
+    New-ADUser -Name 'BadBlood' -Description 'Flags if BadBlood has been executed within AD'
+}
+
 <# Sections to work on if required
 # LAPS STUFF
 if ($PSBoundParameters.ContainsKey('InstallLAPS')){

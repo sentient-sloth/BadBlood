@@ -29,13 +29,13 @@
             HelpMessage = 'supply a count for the number of spns to create')]
             [int32]$SPNCount = 50
     )
-    
-    $services = ("https","ftp","CIFS","kafka","MSSQL","POP3")
+    Write-Output "[>] Adding Selection of SPN's"
+    $services = ("https","ftp","CIFS","kafka","MSSQLSvc","POP3","imap","bigsql")
     $computers = Get-ADComputer -Filter * 
     $users = Get-ADUser -Filter *
     
     $i = 0
-    Do {
+    while ($i -lt $SPNCount) {
         $computer = $computers | Get-Random
         $user = $users | Get-Random
         $service = $services | get-Random
@@ -47,5 +47,5 @@
         }Catch { $i--}
 
         $i++
-    } While($i -lt $SPNCount)
+    }
 }
