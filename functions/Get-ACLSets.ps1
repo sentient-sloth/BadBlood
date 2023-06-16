@@ -3,7 +3,7 @@ function Get-ACLSets {
     param (
         [Parameter(Mandatory = $false,
         HelpMessage = 'AD ACL Inheritance Type (None, All, Descendants)')]
-        [ValidateSetAttribute('None','All','Descendants')]
+        [ValidateSet('None','All','Descendants')]
         # None (This Object Only), All (This object and all descendant objects), Descendants (All descendant objects)
         $InheritanceType = 'Descendents' 
     )

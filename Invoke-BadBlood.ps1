@@ -51,6 +51,10 @@ $BaseScriptPath = Get-ScriptDirectory
 $ReferenceFiles = Join-Path $BaseScriptPath 'reference-files'
 $Domain = Get-ADDomain
 
+if (-Not (Get-Command | Where-Object Name -eq 'Get-ACLSets')){
+    . .\Get-ACLSets.ps1
+}
+
 # Import functions
 foreach ($function in (Get-ChildItem -File -Recurse (Join-Path $BaseScriptPath 'functions'))){
     . $function.FullName
@@ -125,9 +129,20 @@ $PermissionsConfigured = foreach ($Pool in $AssigneePools){
     Set-RandomPermissions -AssignmentCount 10 -AssigneePool $Pool -AssignToPool $OUsAll
 }
 
+#Export configure permissions for reference
 if ($PermissionsConfigured){
     $TimeStamp = Get-Date -Format 'yyyyMMddHHmm_'
     $PermissionsConfigured | Export-Csv (Join-Path $BaseScriptPath "$($TimeStamp)Permissions-Configured.csv")
+}
+
+# Explicitly configure adminSDHolder permissions
+$Path = "CN=AdminSDHolder,CN=System,$($Domain.DistinguishedName)"
+$ACL = (((Get-ACLSets).PSObject.Properties | Get-Random).Value.PSObject.Properties | Get-Random).Value
+$Count = 1
+
+while($Count -le 2){
+    Set-CustomACL -Assignee (Get-Random $AllUsers) -Path $Path -ACLSet $ACL -EA Stop
+    $Count++
 }
 
 # Nesting of objects
@@ -164,7 +179,7 @@ if (
 }
 
 <# Sections to work on if required
-# LAPS STUFF
+# LAPS STUFF (Unnecessary post April 2023 Windows LAPS release)
 if ($PSBoundParameters.ContainsKey('InstallLAPS')){
     .($BaseScriptPath + '\AD_LAPS_Install\InstallLAPSSchema.ps1')
 }
